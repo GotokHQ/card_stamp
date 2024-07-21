@@ -1,9 +1,9 @@
 export interface InitCardInstructionParams {
   reference: string;
-  memo: string;
   feePayer: string;
   wallet: string;
-  mint: string;
+  sourceMint: string;
+  destinationMint: string;
   destinationWallet: string;
   amount: string;
   networkFee: string;

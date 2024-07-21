@@ -14,9 +14,11 @@ export const initCardInstruction = (input: InitCardInstructionParams) => {
   const feePayer = new PublicKey(input.feePayer);
   const wallet = new PublicKey(input.wallet);
   const [stamp, bump] = CardProgram.findStampAccount(input.reference);
-  const mint = new PublicKey(input.mint);
-  const sourceToken = spl.getAssociatedTokenAddressSync(mint, wallet, true);
-  const payerToken = spl.getAssociatedTokenAddressSync(mint, feePayer, true);
+  const sourceMint = new PublicKey(input.sourceMint);
+  const destinationMint = new PublicKey(input.destinationMint);
+  const inToken = spl.getAssociatedTokenAddressSync(sourceMint, wallet, true);
+  const outToken = spl.getAssociatedTokenAddressSync(destinationMint, wallet, true);
+  const payerToken = spl.getAssociatedTokenAddressSync(sourceMint, feePayer, true);
   let platformWallet: PublicKey | undefined;
   let platformToken: PublicKey | undefined;
   let platformFee: BN | undefined;
@@ -26,25 +28,28 @@ export const initCardInstruction = (input: InitCardInstructionParams) => {
   let refereeFee: BN | undefined;
   if (input.platformFee && input.platform) {
     platformWallet = new PublicKey(input.platform);
-    platformToken = spl.getAssociatedTokenAddressSync(mint, platformWallet, true);
+    platformToken = spl.getAssociatedTokenAddressSync(destinationMint, platformWallet, true);
     platformFee = new BN(input.platformFee);
   }
   if (input.referrerFee && input.referrer) {
     referrerWallet = new PublicKey(input.referrer);
-    referrerToken = spl.getAssociatedTokenAddressSync(mint, referrerWallet, true);
+    referrerToken = spl.getAssociatedTokenAddressSync(destinationMint, referrerWallet, true);
     referrerFee = new BN(input.referrer);
   }
   if (input.refereeFeeDiscount) {
     refereeFee = new BN(input.refereeFeeDiscount);
   }
   const destinationWallet = new PublicKey(input.destinationWallet);
-  const destinationToken = spl.getAssociatedTokenAddressSync(mint, destinationWallet, true);
+  const destinationToken = spl.getAssociatedTokenAddressSync(
+    destinationMint,
+    destinationWallet,
+    true,
+  );
   const networkFee = new BN(input.networkFee);
   const amount = new BN(input.amount);
   const data = InitCardArgs.serialize({
     bump,
     reference: input.reference,
-    memo: input.memo,
     networkFee,
     amount,
     referrerFee,
@@ -68,17 +73,27 @@ export const initCardInstruction = (input: InitCardInstructionParams) => {
       isWritable: true,
     },
     {
+      pubkey: sourceMint,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
+      pubkey: destinationMint,
+      isSigner: false,
+      isWritable: false,
+    },
+    {
       pubkey: payerToken,
       isSigner: false,
       isWritable: true,
     },
     {
-      pubkey: mint,
+      pubkey: inToken,
       isSigner: false,
-      isWritable: false,
+      isWritable: true,
     },
     {
-      pubkey: sourceToken,
+      pubkey: outToken,
       isSigner: false,
       isWritable: true,
     },
