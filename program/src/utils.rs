@@ -9,7 +9,6 @@ use solana_program::{
 };
 
 use spl_associated_token_account::instruction::create_associated_token_account;
-use spl_memo::build_memo;
 use spl_token::state::Account;
 
 /// Assert uninitialized
@@ -153,23 +152,6 @@ pub fn spl_token_transfer<'a>(
     invoke_signed(
         &ix,
         &[source.clone(), destination.clone(), authority.clone()],
-        signers_seeds,
-    )
-}
-
-/// SPL transfer instruction.
-pub fn swap_build_memo<'a>(
-    memo: &[u8],
-    signer_account: &AccountInfo<'a>,
-    signers_seeds: &[&[&[u8]]],
-) -> Result<(), ProgramError> {
-    let ix = build_memo(
-        memo,
-        &[&signer_account.key]
-    );
-    invoke_signed(
-        &ix,
-        &[signer_account.clone()],
         signers_seeds,
     )
 }

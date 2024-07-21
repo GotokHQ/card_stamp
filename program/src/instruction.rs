@@ -10,11 +10,11 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub struct InitCardArgs {
     pub bump: u8,
     pub reference: String,
-    pub memo: String,
     pub network_fee: u64,
     pub amount: u64,
     pub platform_fee: Option<u64>,
     pub referrer_fee: Option<u64>,
+    pub referee_fee: Option<u64>,
 }
 
 

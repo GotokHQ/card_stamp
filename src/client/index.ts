@@ -10,8 +10,6 @@ import { CardProgram } from '../card_program';
 import { InitCardArgs } from '../transactions';
 import BN from 'bn.js';
 
-export const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
-
 export const initCardInstruction = (input: InitCardInstructionParams) => {
   const feePayer = new PublicKey(input.feePayer);
   const wallet = new PublicKey(input.wallet);
@@ -25,6 +23,7 @@ export const initCardInstruction = (input: InitCardInstructionParams) => {
   let referrerWallet: PublicKey | undefined;
   let referrerToken: PublicKey | undefined;
   let referrerFee: BN | undefined;
+  let refereeFee: BN | undefined;
   if (input.platformFee && input.platform) {
     platformWallet = new PublicKey(input.platform);
     platformToken = spl.getAssociatedTokenAddressSync(mint, platformWallet, true);
@@ -34,6 +33,9 @@ export const initCardInstruction = (input: InitCardInstructionParams) => {
     referrerWallet = new PublicKey(input.referrer);
     referrerToken = spl.getAssociatedTokenAddressSync(mint, referrerWallet, true);
     referrerFee = new BN(input.referrer);
+  }
+  if (input.refereeFeeDiscount) {
+    refereeFee = new BN(input.refereeFeeDiscount);
   }
   const destinationWallet = new PublicKey(input.destinationWallet);
   const destinationToken = spl.getAssociatedTokenAddressSync(mint, destinationWallet, true);
@@ -47,6 +49,7 @@ export const initCardInstruction = (input: InitCardInstructionParams) => {
     amount,
     referrerFee,
     platformFee,
+    refereeFee,
   });
   const keys = [
     {
@@ -136,11 +139,6 @@ export const initCardInstruction = (input: InitCardInstructionParams) => {
     },
     {
       pubkey: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
-      isSigner: false,
-      isWritable: false,
-    },
-    {
-      pubkey: MEMO_PROGRAM_ID,
       isSigner: false,
       isWritable: false,
     },

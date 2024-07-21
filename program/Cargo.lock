@@ -491,7 +491,6 @@ dependencies = [
  "bs58 0.5.1",
  "solana-program",
  "spl-associated-token-account",
- "spl-memo",
  "spl-token",
  "thiserror",
 ]

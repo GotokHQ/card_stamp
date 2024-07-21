@@ -9,6 +9,7 @@ export type CardInitArgs = {
   amount: BN;
   platformFee?: BN;
   referrerFee?: BN;
+  refereeFee?: BN;
 };
 
 export class InitCardArgs extends Borsh.Data<CardInitArgs> {
@@ -21,6 +22,7 @@ export class InitCardArgs extends Borsh.Data<CardInitArgs> {
     ['amount', 'u64'],
     ['platformFee', { kind: 'option', type: 'u64' }],
     ['referrerFee', { kind: 'option', type: 'u64' }],
+    ['refereeFee', { kind: 'option', type: 'u64' }],
   ]);
 
   instruction = 0;
@@ -31,4 +33,5 @@ export class InitCardArgs extends Borsh.Data<CardInitArgs> {
   amount: BN;
   platformFee?: BN;
   referrerFee?: BN;
+  refereeFee?: BN;
 }

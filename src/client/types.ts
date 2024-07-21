@@ -9,6 +9,7 @@ export interface InitCardInstructionParams {
   networkFee: string;
   platformFee?: string;
   referrerFee?: string;
+  refereeFeeDiscount?: string;
   platform?: string;
   referrer?: string;
 }
