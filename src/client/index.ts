@@ -34,7 +34,7 @@ export const initCardInstruction = (input: InitCardInstructionParams) => {
   if (input.referrerFee && input.referrer) {
     referrerWallet = new PublicKey(input.referrer);
     referrerToken = spl.getAssociatedTokenAddressSync(destinationMint, referrerWallet, true);
-    referrerFee = new BN(input.referrer);
+    referrerFee = new BN(input.referrerFee);
   }
   if (input.refereeFeeDiscount) {
     refereeFee = new BN(input.refereeFeeDiscount);
