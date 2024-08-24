@@ -9,7 +9,7 @@ use solana_program::{
 };
 
 use spl_associated_token_account::instruction::create_associated_token_account;
-use spl_token::state::Account;
+use spl_token_2022::{extension::{BaseState, StateWithExtensions}, state::Account};
 
 /// Assert uninitialized
 pub fn assert_uninitialized<T: IsInitialized>(account: &T) -> ProgramResult {
@@ -78,9 +78,10 @@ pub fn create_associated_token_account_raw<'a>(
     wallet_info: &AccountInfo<'a>,
     mint_info: &AccountInfo<'a>,
     rent_sysvar_info: &AccountInfo<'a>,
+    token_program_id: &Pubkey
 ) -> ProgramResult {
     invoke(
-        &create_associated_token_account(payer_info.key, wallet_info.key, mint_info.key, &spl_token::id()),
+        &create_associated_token_account(payer_info.key, wallet_info.key, mint_info.key, &token_program_id),
         &[
             payer_info.clone(),
             vault_token_info.clone(),
@@ -103,10 +104,15 @@ pub fn cmp_pubkeys(a: &Pubkey, b: &Pubkey) -> bool {
 }
 
 /// assert initialized account
-pub fn assert_initialized<T: Pack + IsInitialized>(
-    account_info: &AccountInfo,
-) -> Result<T, ProgramError> {
-    let account: T = T::unpack_unchecked(&account_info.data.borrow())?;
+pub fn assert_initialized<T>(account_info: &AccountInfo) -> Result<T, ProgramError>
+where
+    T: Pack + IsInitialized + BaseState,
+{    
+    let data = account_info.data.borrow();
+    let state_with_ext = StateWithExtensions::<T>::unpack(&data)?;
+
+    let account = state_with_ext.base;
+    
     if !account.is_initialized() {
         Err(ProgramError::UninitializedAccount)
     } else {
@@ -132,26 +138,32 @@ pub fn assert_owned_by(account: &AccountInfo, owner: &Pubkey) -> ProgramResult {
         Ok(())
     }
 }
+
 /// SPL transfer instruction.
 pub fn spl_token_transfer<'a>(
     source: &AccountInfo<'a>,
     destination: &AccountInfo<'a>,
     authority: &AccountInfo<'a>,
+    mint: &AccountInfo<'a>,
+    token_id: &Pubkey,
     amount: u64,
+    decimals: u8,
     signers_seeds: &[&[&[u8]]],
 ) -> Result<(), ProgramError> {
-    let ix = spl_token::instruction::transfer(
-        &spl_token::id(),
+    let ix = spl_token_2022::instruction::transfer_checked(
+        token_id,
         source.key,
+        mint.key,
         destination.key,
         authority.key,
         &[],
         amount,
+        decimals,
     )?;
 
     invoke_signed(
         &ix,
-        &[source.clone(), destination.clone(), authority.clone()],
+        &[source.clone(), mint.clone(), destination.clone(), authority.clone()],
         signers_seeds,
     )
 }

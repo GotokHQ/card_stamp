@@ -9,7 +9,7 @@ use solana_program::{
 };
 
 
-use spl_token::{native_mint, state::Account as TokenAccount};
+use spl_token_2022::state::{Account as TokenAccount, Mint};
 
 /// Process InitPass instruction
 pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -> ProgramResult {
@@ -24,13 +24,17 @@ pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -
     let out_token_info = next_account_info(account_info_iter)?;
     let dst_wallet_info = next_account_info(account_info_iter)?;
     let dst_token_info = next_account_info(account_info_iter)?;
+    let src_token_program_info = next_account_info(account_info_iter)?;
+    let dst_token_program_info = next_account_info(account_info_iter)?;
     let rent_info = next_account_info(account_info_iter)?;
     let system_account_info = next_account_info(account_info_iter)?;
 
+    let src_mint: Mint = assert_initialized(src_mint_info)?;
+    let dst_mint: Mint = assert_initialized(dst_mint_info)?;
     if let Some(platform_fee) = args.platform_fee {
         let platform_wallet_info = next_account_info(account_info_iter)?;
         let platform_token_info = next_account_info(account_info_iter)?;
-        if cmp_pubkeys(&dst_mint_info.key, &native_mint::id()) {
+        if cmp_pubkeys(&dst_mint_info.key, &spl_token::native_mint::id()) || cmp_pubkeys(&dst_mint_info.key, &spl_token_2022::native_mint::id()) {
             native_transfer(wallet_info, platform_wallet_info, platform_fee, &[])?;
         } else {
             if exists(platform_token_info)? {
@@ -44,13 +48,17 @@ pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -
                     platform_wallet_info,
                     dst_mint_info,
                     rent_info,
+                    &dst_token_program_info.key,
                 )?;
             }
             spl_token_transfer(
                 out_token_info,
                 platform_token_info,
                 wallet_info,
+                dst_mint_info,
+                dst_token_program_info.key,
                 platform_fee,
+                dst_mint.decimals,
                 &[],
             )?;
         }
@@ -59,7 +67,7 @@ pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -
     if let Some(referrer_fee) = args.referrer_fee {
         let referrer_wallet_info = next_account_info(account_info_iter)?;
         let referrer_token_info = next_account_info(account_info_iter)?;
-        if cmp_pubkeys(&dst_mint_info.key, &native_mint::id()) {
+        if cmp_pubkeys(&dst_mint_info.key, &spl_token::native_mint::id()) || cmp_pubkeys(&dst_mint_info.key, &spl_token_2022::native_mint::id()) {
             native_transfer(wallet_info, referrer_wallet_info, referrer_fee, &[])?;
         } else {
             if exists(referrer_token_info)? {
@@ -73,19 +81,23 @@ pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -
                     referrer_wallet_info,
                     dst_mint_info,
                     rent_info,
+                    &dst_token_program_info.key,
                 )?;
             }
             spl_token_transfer(
                 out_token_info,
                 referrer_token_info,
                 wallet_info,
+                dst_mint_info,
+                dst_token_program_info.key,
                 referrer_fee,
+                dst_mint.decimals,
                 &[],
             )?;
         }
     }
 
-    if cmp_pubkeys(&dst_mint_info.key, &native_mint::id()) {
+    if cmp_pubkeys(&dst_mint_info.key, &spl_token::native_mint::id()) || cmp_pubkeys(&dst_mint_info.key, &spl_token_2022::native_mint::id()) {
         native_transfer(wallet_info, dst_wallet_info, args.amount, &[])?;
     } else {
         if exists(dst_token_info)? {
@@ -99,18 +111,22 @@ pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -
                 dst_wallet_info,
                 dst_mint_info,
                 rent_info,
+                &dst_token_program_info.key,
             )?;
         }
         spl_token_transfer(
             out_token_info,
             dst_token_info,
             wallet_info,
+            dst_mint_info,
+            dst_token_program_info.key,
             args.amount,
+            dst_mint.decimals,
             &[],
         )?;
     }
 
-    if cmp_pubkeys(&src_mint_info.key, &native_mint::id()) {
+    if cmp_pubkeys(&src_mint_info.key, &spl_token::native_mint::id())  || cmp_pubkeys(&src_mint_info.key, &spl_token_2022::native_mint::id()){
         native_transfer(wallet_info, payer_info, args.network_fee, &[])?;
     } else {
         if exists(payer_token_info)? {
@@ -124,13 +140,17 @@ pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -
                 payer_info,
                 src_mint_info,
                 rent_info,
+                &src_token_program_info.key,
             )?;
         }
         spl_token_transfer(
             in_token_info,
             payer_token_info,
             wallet_info,
+            src_mint_info,
+            src_token_program_info.key,
             args.network_fee,
+            src_mint.decimals,
             &[],
         )?;
     }
