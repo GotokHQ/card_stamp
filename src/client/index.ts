@@ -5,9 +5,9 @@ import {
   SystemProgram,
 } from '@solana/web3.js';
 import * as spl from '@solana/spl-token';
-import { InitCardInstructionParams } from './types';
+import { InitCardInstructionParams, CloseStampInstructionParams } from './types';
 import { CardProgram } from '../card_program';
-import { InitCardArgs } from '../transactions';
+import { InitCardArgs, CloseStampArgs } from '../transactions';
 import BN from 'bn.js';
 
 export const initCardInstruction = (input: InitCardInstructionParams) => {
@@ -184,6 +184,38 @@ export const initCardInstruction = (input: InitCardInstructionParams) => {
     isSigner: false,
     isWritable: false,
   });
+  return new TransactionInstruction({
+    keys,
+    data,
+    programId: CardProgram.PUBKEY,
+  });
+};
+
+export const closeStampInstruction = (input: CloseStampInstructionParams) => {
+  const authority = new PublicKey(input.authority);
+  const [stamp] = CardProgram.findStampAccount(input.reference);
+  const destination = new PublicKey(input.destination);
+
+  const data = CloseStampArgs.serialize({});
+
+  const keys = [
+    {
+      pubkey: authority,
+      isSigner: true,
+      isWritable: false,
+    },
+    {
+      pubkey: stamp,
+      isSigner: false,
+      isWritable: true,
+    },
+    {
+      pubkey: destination,
+      isSigner: false,
+      isWritable: true,
+    },
+  ];
+
   return new TransactionInstruction({
     keys,
     data,

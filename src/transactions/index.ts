@@ -33,3 +33,9 @@ export class InitCardArgs extends Borsh.Data<CardInitArgs> {
   referrerFee?: BN;
   refereeFee?: BN;
 }
+
+export class CloseStampArgs extends Borsh.Data {
+  static readonly SCHEMA = CloseStampArgs.struct([['instruction', 'u8']]);
+
+  instruction = 1;
+}
