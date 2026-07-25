@@ -7,15 +7,27 @@
  * inject stamp PDA accounts for CloseStamp testing. This isolates the
  * close logic and tests all security invariants.
  *
+ * Security model (enforced on-chain):
+ *   CloseStamp may ONLY be signed by a trusted platform authority
+ *   (`CLOSE_AUTHORITIES` in program/src/processor/close_stamp.rs: the backend
+ *   fee payers plus the admin keys). Any other signer is rejected with
+ *   `InvalidAuthorityId`. This prevents a permissionless rent-farming bot from
+ *   closing our stamp PDAs and pocketing the reclaimed rent.
+ *
+ *   These tests exercise the happy path with `TEST_AUTHORITY`, a throwaway key
+ *   derived from the public seed `[7u8; 32]`. It is only accepted by a program
+ *   binary compiled with `--features test-bpf` (see the fixture build step in
+ *   the test instructions); production binaries reject it like any other key.
+ *
  * Production convention: the `destination` for reclaimed rent should always be
  * the FEE_PAYER wallet, since it is the one that originally paid the rent
- * when creating the stamp via InitCard. The on-chain program is flexible
- * and accepts any destination, but the backend enforces this convention.
+ * when creating the stamp via InitCard. The on-chain program accepts any
+ * destination, but the backend enforces this convention.
  *
  * Test categories:
  * 1. Happy path — close a valid stamp and reclaim rent to fee payer
  * 2. Double-close protection
- * 3. Authority / signer checks
+ * 3. Authority / signer checks (must be a signer AND an authorized closer)
  * 4. Ownership checks (reject non-program-owned accounts)
  * 5. Uninitialized stamp rejection
  * 6. Multiple stamp reclamation
@@ -43,6 +55,14 @@ const PROGRAM_ID = CardProgram.PUBKEY;
 // This is approximately 890,880 lamports but bankrun will use the runtime's value.
 // We use a generous amount when injecting test accounts.
 const STAMP_RENT_LAMPORTS = 1_000_000;
+
+/**
+ * Trusted close authority for tests. Derived from the publicly-known seed
+ * `[7u8; 32]`; its pubkey (GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB) is
+ * compiled into the program ONLY under `--features test-bpf`. A signer, but
+ * never the transaction fee payer, so it needs no lamports.
+ */
+const TEST_AUTHORITY = Keypair.fromSeed(new Uint8Array(32).fill(7));
 
 /**
  * Helper: create a base58-encoded reference from a string
@@ -100,7 +120,7 @@ async function startWithStamps(stamps: Array<{ reference: string; initialized?: 
 // 1. Happy Path — rent reclaimed to fee payer
 // ============================================================================
 
-test('CloseStamp: successfully closes a stamp and reclaims rent to fee payer wallet', async (t) => {
+test('CloseStamp: authorized closer closes a stamp and reclaims rent to fee payer wallet', async (t) => {
   const reference = makeReference('PRW-closetest00000001');
   const context = await startWithStamps([{ reference }]);
   const client = context.banksClient;
@@ -123,9 +143,9 @@ test('CloseStamp: successfully closes a stamp and reclaims rent to fee payer wal
   const feePayerBefore = await client.getAccount(feePayer.publicKey);
   t.equal(feePayerBefore, null, 'Fee payer destination should not exist yet');
 
-  // Close the stamp — rent goes to fee payer
+  // Close the stamp — signed by the trusted authority, rent goes to fee payer
   const ix = closeStampInstruction({
-    authority: payer.publicKey.toBase58(),
+    authority: TEST_AUTHORITY.publicKey.toBase58(),
     reference,
     destination: feePayer.publicKey.toBase58(),
   });
@@ -134,7 +154,7 @@ test('CloseStamp: successfully closes a stamp and reclaims rent to fee payer wal
   tx.add(ix);
   tx.recentBlockhash = context.lastBlockhash;
   tx.feePayer = payer.publicKey;
-  tx.sign(payer);
+  tx.sign(payer, TEST_AUTHORITY);
   await client.processTransaction(tx);
 
   // Verify stamp is gone
@@ -167,7 +187,7 @@ test('CloseStamp: rent adds to existing fee payer balance', async (t) => {
   const feePayerLamportsBefore = feePayerBefore!.lamports;
 
   const ix = closeStampInstruction({
-    authority: payer.publicKey.toBase58(),
+    authority: TEST_AUTHORITY.publicKey.toBase58(),
     reference,
     destination: payer.publicKey.toBase58(),
   });
@@ -176,7 +196,7 @@ test('CloseStamp: rent adds to existing fee payer balance', async (t) => {
   tx.add(ix);
   tx.recentBlockhash = context.lastBlockhash;
   tx.feePayer = payer.publicKey;
-  tx.sign(payer);
+  tx.sign(payer, TEST_AUTHORITY);
   await client.processTransaction(tx);
 
   const feePayerAfter = await client.getAccount(payer.publicKey);
@@ -203,7 +223,7 @@ test('CloseStamp: cannot close the same stamp twice', async (t) => {
 
   // First close — should succeed
   const ix1 = closeStampInstruction({
-    authority: payer.publicKey.toBase58(),
+    authority: TEST_AUTHORITY.publicKey.toBase58(),
     reference,
     destination: payer.publicKey.toBase58(),
   });
@@ -212,12 +232,12 @@ test('CloseStamp: cannot close the same stamp twice', async (t) => {
   tx1.add(ix1);
   tx1.recentBlockhash = context.lastBlockhash;
   tx1.feePayer = payer.publicKey;
-  tx1.sign(payer);
+  tx1.sign(payer, TEST_AUTHORITY);
   await client.processTransaction(tx1);
 
   // Second close — should fail
   const ix2 = closeStampInstruction({
-    authority: payer.publicKey.toBase58(),
+    authority: TEST_AUTHORITY.publicKey.toBase58(),
     reference,
     destination: payer.publicKey.toBase58(),
   });
@@ -226,7 +246,7 @@ test('CloseStamp: cannot close the same stamp twice', async (t) => {
   tx2.add(ix2);
   tx2.recentBlockhash = context.lastBlockhash;
   tx2.feePayer = payer.publicKey;
-  tx2.sign(payer);
+  tx2.sign(payer, TEST_AUTHORITY);
 
   try {
     await client.processTransaction(tx2);
@@ -247,14 +267,15 @@ test('CloseStamp: authority must be a signer', async (t) => {
   const context = await startWithStamps([{ reference }]);
   const client = context.banksClient;
   const payer = context.payer;
-  const fakeAuthority = Keypair.generate();
   const [stampPda] = findStamp(reference);
 
-  // Build instruction manually with isSigner=false to simulate missing signature
+  // Build instruction manually with isSigner=false to simulate missing signature.
+  // Uses the trusted authority's key so that ONLY the missing-signature check
+  // can be the cause of rejection (MissingRequiredSignature runs first).
   const data = CloseStampArgs.serialize({});
   const closeIx: TransactionInstruction = {
     keys: [
-      { pubkey: fakeAuthority.publicKey, isSigner: false, isWritable: false },
+      { pubkey: TEST_AUTHORITY.publicKey, isSigner: false, isWritable: false },
       { pubkey: stampPda, isSigner: false, isWritable: true },
       { pubkey: payer.publicKey, isSigner: false, isWritable: true },
     ],
@@ -283,15 +304,16 @@ test('CloseStamp: authority must be a signer', async (t) => {
   t.end();
 });
 
-test('CloseStamp: any valid signer can close (authority is not hardcoded)', async (t) => {
-  const reference = makeReference('PRW-anysigner000001');
+test('CloseStamp: rejects a signer that is not an authorized closer', async (t) => {
+  const reference = makeReference('PRW-unauth0000001');
   const context = await startWithStamps([{ reference }]);
   const client = context.banksClient;
   const payer = context.payer;
   const randomAuthority = Keypair.generate();
   const [stampPda] = findStamp(reference);
 
-  // Fund the random authority so it can pay for the tx
+  // Fund the random authority so it can pay for the tx (mirrors a rent-farming
+  // bot that signs with its own funded wallet).
   const fundIx = SystemProgram.transfer({
     fromPubkey: payer.publicKey,
     toPubkey: randomAuthority.publicKey,
@@ -304,7 +326,7 @@ test('CloseStamp: any valid signer can close (authority is not hardcoded)', asyn
   fundTx.sign(payer);
   await client.processTransaction(fundTx);
 
-  // Close with a completely different signer
+  // Attempt to close with a completely unauthorized (but validly signed) key.
   const ix = closeStampInstruction({
     authority: randomAuthority.publicKey.toBase58(),
     reference,
@@ -316,11 +338,18 @@ test('CloseStamp: any valid signer can close (authority is not hardcoded)', asyn
   tx.recentBlockhash = context.lastBlockhash;
   tx.feePayer = randomAuthority.publicKey;
   tx.sign(randomAuthority);
-  await client.processTransaction(tx);
 
+  try {
+    await client.processTransaction(tx);
+    t.fail('CloseStamp by an unauthorized signer should be rejected');
+  } catch (err) {
+    t.pass('CloseStamp correctly rejected: signer is not an authorized closer (InvalidAuthorityId)');
+  }
+
+  // The stamp must survive the unauthorized close attempt.
   const stampAfter = await client.getAccount(stampPda);
-  t.equal(stampAfter, null, 'Stamp should be closed by any valid signer');
-  t.pass('Security model confirmed: any signer can close (security relies on reference secrecy)');
+  t.ok(stampAfter, 'Stamp should still exist after an unauthorized close attempt');
+  t.equal(stampAfter!.data[0], 1, 'Stamp should still be initialized');
 
   t.end();
 });
@@ -351,11 +380,12 @@ test('CloseStamp: rejects account not owned by the program', async (t) => {
   fundTx.sign(payer);
   await client.processTransaction(fundTx);
 
-  // Try to close it via CloseStamp (manually pointing at the fake account)
+  // Try to close it via CloseStamp (signed by the trusted authority so the
+  // ownership check — not the authority check — is what rejects it).
   const data = CloseStampArgs.serialize({});
   const closeIx: TransactionInstruction = {
     keys: [
-      { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+      { pubkey: TEST_AUTHORITY.publicKey, isSigner: true, isWritable: false },
       { pubkey: fakeStamp.publicKey, isSigner: false, isWritable: true },
       { pubkey: payer.publicKey, isSigner: false, isWritable: true },
     ],
@@ -367,7 +397,7 @@ test('CloseStamp: rejects account not owned by the program', async (t) => {
   closeTx.add(closeIx);
   closeTx.recentBlockhash = context.lastBlockhash;
   closeTx.feePayer = payer.publicKey;
-  closeTx.sign(payer);
+  closeTx.sign(payer, TEST_AUTHORITY);
 
   try {
     await client.processTransaction(closeTx);
@@ -401,9 +431,10 @@ test('CloseStamp: rejects uninitialized stamp account', async (t) => {
   t.ok(stampBefore, 'Stamp PDA should exist');
   t.equal(stampBefore!.data[0], 0, 'Stamp should NOT be initialized');
 
-  // Try to close it
+  // Try to close it (signed by the trusted authority so the initialized check
+  // — not the authority check — is what rejects it).
   const ix = closeStampInstruction({
-    authority: payer.publicKey.toBase58(),
+    authority: TEST_AUTHORITY.publicKey.toBase58(),
     reference,
     destination: payer.publicKey.toBase58(),
   });
@@ -412,7 +443,7 @@ test('CloseStamp: rejects uninitialized stamp account', async (t) => {
   tx.add(ix);
   tx.recentBlockhash = context.lastBlockhash;
   tx.feePayer = payer.publicKey;
-  tx.sign(payer);
+  tx.sign(payer, TEST_AUTHORITY);
 
   try {
     await client.processTransaction(tx);
@@ -439,7 +470,7 @@ test('CloseStamp: rejects non-existent stamp (no account at PDA)', async (t) => 
   const reference = makeReference('PRW-noexist000000001');
 
   const ix = closeStampInstruction({
-    authority: payer.publicKey.toBase58(),
+    authority: TEST_AUTHORITY.publicKey.toBase58(),
     reference,
     destination: payer.publicKey.toBase58(),
   });
@@ -448,7 +479,7 @@ test('CloseStamp: rejects non-existent stamp (no account at PDA)', async (t) => 
   tx.add(ix);
   tx.recentBlockhash = context.lastBlockhash;
   tx.feePayer = payer.publicKey;
-  tx.sign(payer);
+  tx.sign(payer, TEST_AUTHORITY);
 
   try {
     await client.processTransaction(tx);
@@ -480,7 +511,7 @@ test('CloseStamp: close multiple stamps sequentially, all rent reclaimed to fee 
   // Close all stamps one by one, sending rent to fee payer
   for (const reference of refs) {
     const ix = closeStampInstruction({
-      authority: payer.publicKey.toBase58(),
+      authority: TEST_AUTHORITY.publicKey.toBase58(),
       reference,
       destination: feePayerWallet.publicKey.toBase58(),
     });
@@ -488,7 +519,7 @@ test('CloseStamp: close multiple stamps sequentially, all rent reclaimed to fee 
     tx.add(ix);
     tx.recentBlockhash = context.lastBlockhash;
     tx.feePayer = payer.publicKey;
-    tx.sign(payer);
+    tx.sign(payer, TEST_AUTHORITY);
     await client.processTransaction(tx);
   }
 
@@ -527,7 +558,7 @@ test('CloseStamp: close multiple stamps in a single transaction (batched), rent 
   const tx = new Transaction();
   for (const reference of refs) {
     const ix = closeStampInstruction({
-      authority: payer.publicKey.toBase58(),
+      authority: TEST_AUTHORITY.publicKey.toBase58(),
       reference,
       destination: feePayerWallet.publicKey.toBase58(),
     });
@@ -535,7 +566,7 @@ test('CloseStamp: close multiple stamps in a single transaction (batched), rent 
   }
   tx.recentBlockhash = context.lastBlockhash;
   tx.feePayer = payer.publicKey;
-  tx.sign(payer);
+  tx.sign(payer, TEST_AUTHORITY);
   await client.processTransaction(tx);
 
   // Verify all stamps are gone
@@ -616,11 +647,12 @@ test('CloseStamp: cannot use stamp PDA as destination (self-close)', async (t) =
   const payer = context.payer;
   const [stampPda] = findStamp(reference);
 
-  // Try to close the stamp to itself
+  // Try to close the stamp to itself (signed by the trusted authority so the
+  // self-destination check — not the authority check — is what rejects it).
   const data = CloseStampArgs.serialize({});
   const closeIx: TransactionInstruction = {
     keys: [
-      { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+      { pubkey: TEST_AUTHORITY.publicKey, isSigner: true, isWritable: false },
       { pubkey: stampPda, isSigner: false, isWritable: true },
       { pubkey: stampPda, isSigner: false, isWritable: true }, // destination = stamp itself
     ],
@@ -632,7 +664,7 @@ test('CloseStamp: cannot use stamp PDA as destination (self-close)', async (t) =
   tx.add(closeIx);
   tx.recentBlockhash = context.lastBlockhash;
   tx.feePayer = payer.publicKey;
-  tx.sign(payer);
+  tx.sign(payer, TEST_AUTHORITY);
 
   try {
     await client.processTransaction(tx);

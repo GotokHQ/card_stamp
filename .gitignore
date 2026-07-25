@@ -1,5 +1,7 @@
 debug/
 target/
+# test-feature program binary rebuilt by `yarn build:program:test` — never deploy or commit
+test/fixtures/
 .DS_Store
 **/.DS_Store
 .anchor/
