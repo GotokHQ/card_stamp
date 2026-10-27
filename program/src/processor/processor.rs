@@ -9,7 +9,7 @@ use solana_program::{
 };
 
 
-use spl_token_2022::state::{Account as TokenAccount, Mint};
+use spl_token_2022::state::Mint;
 
 /// Process InitPass instruction
 pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -> ProgramResult {
@@ -29,6 +29,10 @@ pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -
     let rent_info = next_account_info(account_info_iter)?;
     let system_account_info = next_account_info(account_info_iter)?;
 
+    assert_token_program(src_token_program_info)?;
+    assert_token_program(dst_token_program_info)?;
+    assert_owned_by(src_mint_info, src_token_program_info.key)?;
+    assert_owned_by(dst_mint_info, dst_token_program_info.key)?;
     let src_mint: Mint = assert_initialized(src_mint_info)?;
     let dst_mint: Mint = assert_initialized(dst_mint_info)?;
     if let Some(platform_fee) = args.platform_fee {
@@ -38,9 +42,7 @@ pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -
             native_transfer(wallet_info, platform_wallet_info, platform_fee, &[])?;
         } else {
             if exists(platform_token_info)? {
-                let platform_token: TokenAccount = assert_initialized(platform_token_info)?;
-                assert_token_owned_by(&platform_token, &platform_wallet_info.key)?;
-                assert_owned_by(platform_token_info, &spl_token::id())?;
+                assert_token_account(platform_token_info, platform_wallet_info.key, dst_token_program_info.key)?;
             } else {
                 create_associated_token_account_raw(
                     payer_info,
@@ -71,9 +73,7 @@ pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -
             native_transfer(wallet_info, referrer_wallet_info, referrer_fee, &[])?;
         } else {
             if exists(referrer_token_info)? {
-                let referrer_token: TokenAccount = assert_initialized(referrer_token_info)?;
-                assert_token_owned_by(&referrer_token, &referrer_wallet_info.key)?;
-                assert_owned_by(referrer_token_info, &spl_token::id())?;
+                assert_token_account(referrer_token_info, referrer_wallet_info.key, dst_token_program_info.key)?;
             } else {
                 create_associated_token_account_raw(
                     payer_info,
@@ -101,9 +101,7 @@ pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -
         native_transfer(wallet_info, dst_wallet_info, args.amount, &[])?;
     } else {
         if exists(dst_token_info)? {
-            let dst_token: TokenAccount = assert_initialized(dst_token_info)?;
-            assert_token_owned_by(&dst_token, &dst_wallet_info.key)?;
-            assert_owned_by(dst_token_info, &spl_token::id())?;
+            assert_token_account(dst_token_info, dst_wallet_info.key, dst_token_program_info.key)?;
         } else {
             create_associated_token_account_raw(
                 payer_info,
@@ -130,9 +128,7 @@ pub fn init(program_id: &Pubkey, accounts: &[AccountInfo], args: InitCardArgs) -
         native_transfer(wallet_info, payer_info, args.network_fee, &[])?;
     } else {
         if exists(payer_token_info)? {
-            let payer_token: TokenAccount = assert_initialized(payer_token_info)?;
-            assert_token_owned_by(&payer_token, &payer_info.key)?;
-            assert_owned_by(payer_token_info, &spl_token::id())?;
+            assert_token_account(payer_token_info, payer_info.key, src_token_program_info.key)?;
         } else {
             create_associated_token_account_raw(
                 payer_info,
