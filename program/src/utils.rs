@@ -139,6 +139,29 @@ pub fn assert_owned_by(account: &AccountInfo, owner: &Pubkey) -> ProgramResult {
     }
 }
 
+/// Assert the account is the classic SPL Token program or Token-2022
+pub fn assert_token_program(program_info: &AccountInfo) -> ProgramResult {
+    if cmp_pubkeys(program_info.key, &spl_token::id())
+        || cmp_pubkeys(program_info.key, &spl_token_2022::id())
+    {
+        Ok(())
+    } else {
+        Err(ProgramError::IncorrectProgramId)
+    }
+}
+
+/// Assert an existing token account belongs to `token_program_id` (the
+/// program that owns the mint) and is held by `wallet`
+pub fn assert_token_account(
+    token_info: &AccountInfo,
+    wallet: &Pubkey,
+    token_program_id: &Pubkey,
+) -> ProgramResult {
+    assert_owned_by(token_info, token_program_id)?;
+    let token: Account = assert_initialized(token_info)?;
+    assert_token_owned_by(&token, wallet)
+}
+
 /// SPL transfer instruction.
 pub fn spl_token_transfer<'a>(
     source: &AccountInfo<'a>,
